@@ -1,11 +1,11 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "listening-annotations",
+	"name": "Listening Annotations",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"description": "An Obsidian plugin for displaying English listening annotations.",
+	"author": "Mahoo12138",
+	"authorUrl": "https://blog.mahoo12138.cn",
+	"fundingUrl": "https://afdian.tv/a/mahoo12138",
 	"isDesktopOnly": false
 }
