@@ -7,6 +7,7 @@ import {
 	Notice,
 	MarkdownView,
 	WorkspaceLeaf,
+	TFile,
 } from "obsidian";
 
 // Helper debounce function
@@ -89,22 +90,92 @@ export default class ListeningPlugin extends Plugin {
 				el.removeAttribute("style");
 				el.addClass("listening-code-block");
 
+				let audioSrc: string | null = null;
+				let remainingSource = source;
+				const sourceLines = source.split("\n");
+				let isFirstLineAudioParam = false; // Flag to track if the first line was an audio param
+
+				if (sourceLines.length > 0) {
+					const firstLine = sourceLines[0].trim();
+					const audioPathRegex =
+						/^\{([^}]+(?:\.mp3|\.wav|\.ogg))\}$/i;
+					const match = firstLine.match(audioPathRegex);
+
+					if (match && match[1]) {
+						isFirstLineAudioParam = true;
+						const potentialAudioPath = match[1].trim();
+						let file: TFile | null = null;
+
+						// 1. Try as absolute path (relative to vault root)
+						const absoluteFile =
+							this.app.vault.getAbstractFileByPath(
+								potentialAudioPath
+							);
+						if (absoluteFile instanceof TFile) {
+							file = absoluteFile;
+						}
+
+						// 2. If not found, try as relative path to the current markdown file
+						if (!file) {
+							const currentFilePath = ctx.sourcePath;
+							const parentFolder = currentFilePath.substring(
+								0,
+								currentFilePath.lastIndexOf("/")
+							);
+							const relativePath = parentFolder
+								? `${parentFolder}/${potentialAudioPath}`
+								: potentialAudioPath;
+							const relativeFile =
+								this.app.vault.getAbstractFileByPath(
+									relativePath
+								);
+							if (relativeFile instanceof TFile) {
+								file = relativeFile;
+							}
+						}
+
+						if (file) {
+							audioSrc = this.app.vault.getResourcePath(file);
+						} else {
+							new Notice(
+								`Listening Plugin: Audio file not found: ${potentialAudioPath} (checked as vault absolute and relative to current file)`
+							);
+						}
+					}
+				}
+
+				el.style.border = "1px solid var(--text-accent)";
+				el.style.padding = "10px";
+				el.style.borderRadius = "5px";
+
+				// Always remove the first line if it was identified as an audio parameter attempt
+				if (isFirstLineAudioParam) {
+					remainingSource = sourceLines.slice(1).join("\n");
+					el.style.paddingBottom = "35px";
+				} else {
+					remainingSource = source; // No audio param, use original source
+				}
+
 				if (
 					this.currentFontFamilyName &&
 					this.settings.selectedFontFile !== "DEFAULT"
 				) {
 					el.style.fontFamily = `"${this.currentFontFamilyName}"`;
 				}
-				el.style.fontSize = `${this.settings.fontSize}px`; // Apply font size
+				el.style.fontSize = `${this.settings.fontSize}px`;
 
-				el.style.border = "1px solid var(--text-accent)";
-				el.style.padding = "10px";
-				el.style.borderRadius = "5px";
-
-				const lines = source.split("\n");
+				const lines = remainingSource.split("\n");
 				for (const line of lines) {
 					const p = el.createEl("p");
 					this.parseAndRenderLine(p, line);
+				}
+
+				if (audioSrc) {
+					const audioPlayer = el.createEl("audio");
+					audioPlayer.src = audioSrc;
+					audioPlayer.controls = true;
+					audioPlayer.style.width = "100%";
+					audioPlayer.style.marginTop = "10px";
 				}
 			}
 		);

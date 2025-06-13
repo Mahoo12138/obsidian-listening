@@ -6,12 +6,23 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
+.listening-code-block {
+    position: relative;
+}
+
+.listening-code-block audio {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+}
 
 .listening-code-block del {
     text-decoration: none; /* 移除默认删除线 */
     position: relative; /* 为伪元素定位提供基准 */
     display: inline; /* 或者 inline-block，根据需要调整 */
 }
+
+
 
 .listening-code-block del::after {
     content: '';
