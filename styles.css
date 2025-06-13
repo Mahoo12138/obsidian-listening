@@ -16,12 +16,12 @@ If your plugin does not need CSS, delete this file.
 .listening-code-block del::after {
     content: '';
     position: absolute;
-    left: 25%;
-    top: 45%;
-    width: 150%;
-    height: 1px;
+    left: -5%;
+    bottom: 34%;
+    width: 120%;
+    height: 2px;
     background-color: #fff;
-    transform: rotate(65deg);
+    /* transform: rotate(65deg); */
     transform-origin: left center; /* 设置旋转中心点为左侧中间 */
     pointer-events: none; /* 确保伪元素不会干扰鼠标事件 */
 }
