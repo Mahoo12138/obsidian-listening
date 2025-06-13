@@ -26,13 +26,15 @@ function debounce<T extends (...args: any[]) => any>(
 interface ListeningPluginSettings {
 	fontFolderPath: string;
 	selectedFontFile: string;
-	fontSize: number; // New setting for font size in pixels
+	fontSize: number;
+	loopAudio: boolean; // 新增循环播放设置
 }
 
 const DEFAULT_SETTINGS: ListeningPluginSettings = {
 	fontFolderPath: "",
 	selectedFontFile: "DEFAULT",
-	fontSize: 16, // Default font size
+	fontSize: 16,
+	loopAudio: false, // 默认不循环
 };
 
 const CUSTOM_FONT_STYLE_ID = "listening-custom-font-style";
@@ -174,6 +176,7 @@ export default class ListeningPlugin extends Plugin {
 					const audioPlayer = el.createEl("audio");
 					audioPlayer.src = audioSrc;
 					audioPlayer.controls = true;
+					audioPlayer.loop = this.settings.loopAudio; // 应用循环设置
 					audioPlayer.style.width = "100%";
 					audioPlayer.style.marginTop = "10px";
 				}
@@ -531,6 +534,19 @@ class ListeningSettingTab extends PluginSettingTab {
 					.setValue(String(this.plugin.settings.fontSize))
 					.onChange(this.debouncedUpdateFontSize)
 			); // Use the debounced function
+
+		// Loop Audio Setting
+		new Setting(containerEl)
+			.setName("Loop Audio")
+			.setDesc("Enable audio looping for listening code blocks")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.loopAudio)
+					.onChange(async (value) => {
+						this.plugin.settings.loopAudio = value;
+						await this.plugin.saveSettings();
+					})
+			);
 
 		// Rescan Fonts Button
 		new Setting(containerEl)
