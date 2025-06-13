@@ -9,6 +9,19 @@ import {
 	WorkspaceLeaf,
 } from "obsidian";
 
+// Helper debounce function
+function debounce<T extends (...args: any[]) => any>(
+	func: T,
+	wait: number
+): (...args: Parameters<T>) => void {
+	let timeout: number | undefined;
+	return function (this: ThisParameterType<T>, ...args: Parameters<T>) {
+		const context = this;
+		clearTimeout(timeout);
+		timeout = window.setTimeout(() => func.apply(context, args), wait);
+	};
+}
+
 interface ListeningPluginSettings {
 	fontFolderPath: string;
 	selectedFontFile: string;
@@ -220,8 +233,8 @@ export default class ListeningPlugin extends Plugin {
 			{ regex: /__(.*?)__/g, tag: "u" }, // Underline: __text__
 			{ regex: /\*\*(.*?)\*\*/g, tag: "strong" }, // Bold: **text**
 			{ regex: /\*(.*?)\*/g, tag: "em" }, // Italic: *text*
-			{ regex: /\+\+(.*?)\+\+/g, style: "font-size: 1.2em;" }, // Font size increase: ++text++
-			{ regex: /--(.*?)--/g, style: "font-size: 0.8em;" }, // Font size decrease: --text--
+			{ regex: /\+\+(.*?)\+\+/g, style: "font-size: 1.5em;" }, // Font size increase: ++text++
+			{ regex: /--(.*?)--/g, style: "font-size: 0.5em;" }, // Font size decrease: --text--
 		];
 
 		function applyRules(text: string, parentEl: HTMLElement) {
@@ -319,10 +332,29 @@ export default class ListeningPlugin extends Plugin {
 class ListeningSettingTab extends PluginSettingTab {
 	plugin: ListeningPlugin;
 	availableFonts: { [key: string]: string } = {}; // To store display name (file name) and file name
+	private debouncedUpdateFontSize: (value: string) => void;
 
 	constructor(app: App, plugin: ListeningPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
+
+		// Initialize the debounced function
+		this.debouncedUpdateFontSize = debounce(async (value: string) => {
+			const newSize = parseInt(value);
+			if (!isNaN(newSize) && newSize > 0) {
+				this.plugin.settings.fontSize = newSize;
+				await this.plugin.saveSettings();
+				await this.plugin.updateExistingCodeBlocksStyle();
+			} else {
+				new Notice(
+					"Please enter a valid positive number for font size."
+				);
+				// Revert to the current setting value if input is invalid
+				// This requires the text component to be passed or accessed,
+				// for simplicity, we'll just show a notice.
+				// A more robust solution might involve re-rendering the setting or passing the text component.
+			}
+		}, 500); // 500ms delay
 	}
 
 	async scanFontFiles(): Promise<void> {
@@ -373,23 +405,50 @@ class ListeningSettingTab extends PluginSettingTab {
 		containerEl.createEl("h2", { text: "Listening Plugin Settings" });
 
 		new Setting(containerEl)
-			.setName("Font folder path")
+			.setName("Font Folder Path")
 			.setDesc(
-				"Path to the folder containing your .ttf, .otf, .woff, or .woff2 font files (e.g., .obsidian/fonts or an absolute path)."
+				"Absolute path to the folder containing your .ttf, .otf, .woff, or .woff2 font files."
 			)
 			.addText((text) =>
 				text
-					.setPlaceholder("e.g., .obsidian/fonts")
+					.setPlaceholder(this.plugin.app.vault.configDir + "/fonts")
 					.setValue(this.plugin.settings.fontFolderPath)
 					.onChange(async (value) => {
-						this.plugin.settings.fontFolderPath = value.trim();
-						await this.plugin.saveSettings(); // This will also trigger loadAndApplyCustomFont
-						await this.scanFontFiles();
+						this.plugin.settings.fontFolderPath =
+							value || this.plugin.app.vault.configDir + "/fonts";
+						await this.plugin.saveSettings();
 						this.display();
 					})
 			);
 
-		// New Font Size Setting
+		// Font File Selection Setting
+		const fontFileSetting = new Setting(containerEl)
+			.setName("Select Font File")
+			.setDesc(
+				'Select the font file to use. Select "DEFAULT" to use Obsidian\'s default font.'
+			);
+
+		// Scan fonts and then build the rest of the UI
+		this.scanFontFiles().then(() => {
+			fontFileSetting.addDropdown((dropdown) => {
+				for (const fontFileKey in this.availableFonts) {
+					dropdown.addOption(
+						fontFileKey,
+						this.availableFonts[fontFileKey]
+					);
+				}
+				dropdown
+					.setValue(this.plugin.settings.selectedFontFile)
+					.onChange(async (value) => {
+						this.plugin.settings.selectedFontFile = value;
+						await this.plugin.saveSettings();
+						await this.plugin.loadAndApplyCustomFont(); // This will now also update existing blocks
+						// No need to call updateExistingCodeBlocksFont here as loadAndApplyCustomFont does it.
+					});
+			});
+		});
+
+		// Font Size Setting with Debounce
 		new Setting(containerEl)
 			.setName("Font Size (px)")
 			.setDesc(
@@ -399,71 +458,38 @@ class ListeningSettingTab extends PluginSettingTab {
 				text
 					.setPlaceholder(String(DEFAULT_SETTINGS.fontSize))
 					.setValue(String(this.plugin.settings.fontSize))
-					.onChange(async (value) => {
-						const newSize = parseInt(value);
-						if (!isNaN(newSize) && newSize > 0) {
-							this.plugin.settings.fontSize = newSize;
-							await this.plugin.saveSettings();
-							await this.plugin.updateExistingCodeBlocksStyle(); // Update existing blocks
-						} else {
-							new Notice(
-								"Please enter a valid positive number for font size."
-							);
-							// Optionally, revert to previous value or default if input is invalid
-							text.setValue(
-								String(this.plugin.settings.fontSize)
-							);
-						}
-					})
+					.onChange(this.debouncedUpdateFontSize)
+			); // Use the debounced function
+
+		// Rescan Fonts Button
+		new Setting(containerEl)
+			.setName("Rescan Fonts")
+			.setDesc("Click to rescan the font folder for new font files.")
+			.addButton((button) =>
+				button.setButtonText("Rescan").onClick(() => {
+					this.display();
+				})
 			);
+	}
 
-		// Scan fonts and then build the rest of the UI
-		this.scanFontFiles()
-			.then(() => {
-				new Setting(containerEl)
-					.setName("Font for listening blocks")
-					.setDesc(
-						"Select a font. Fonts are loaded from the specified folder."
-					)
-					.addDropdown((dropdown) => {
-						for (const fontFileKey in this.availableFonts) {
-							dropdown.addOption(
-								fontFileKey,
-								this.availableFonts[fontFileKey]
-							);
-						}
-						dropdown
-							.setValue(this.plugin.settings.selectedFontFile)
-							.onChange(async (value) => {
-								this.plugin.settings.selectedFontFile = value;
-								await this.plugin.saveSettings();
-								await this.plugin.loadAndApplyCustomFont(); // This will now also update existing blocks
-								// No need to call updateExistingCodeBlocksFont here as loadAndApplyCustomFont does it.
-							});
-					});
-
-				new Setting(containerEl)
-					.setName("Rescan font folder")
-					.setDesc(
-						"Click to rescan the font folder and update the dropdown list."
-					)
-					.addButton((button) =>
-						button
-							.setButtonText("Rescan Fonts")
-							.onClick(async () => {
-								await this.scanFontFiles();
-								this.display();
-							})
-					);
-			})
-			.catch((error) => {
-				console.error(
-					"Listening Plugin: Error during settings display construction after font scan:",
-					error
-				);
-				new Notice(
-					"Listening Plugin: Error building settings UI. Check console."
-				);
-			});
+	getFontFiles(folderPath: string): string[] {
+		if (!folderPath) return [];
+		try {
+			const fs = require("fs");
+			const path = require("path");
+			const files = fs.readdirSync(folderPath);
+			return files.filter((file: string) =>
+				/\.(ttf|otf|woff|woff2)$/i.test(file)
+			);
+		} catch (error) {
+			console.error(
+				"Listening Plugin: Error reading font folder:",
+				error
+			);
+			new Notice(
+				`Listening Plugin: Error reading font folder: ${folderPath}. Please ensure the path is correct and accessible.`
+			);
+			return [];
+		}
 	}
 }
